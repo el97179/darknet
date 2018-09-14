@@ -1,0 +1,6 @@
+classes = 1
+train  = data/weapons/train_80-0-20.txt
+valid  = data/weapons/test_80-0-20.txt
+names = data/weapons/weapon.names
+backup = backup/
+
