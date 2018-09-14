@@ -180,27 +180,27 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 	srand(2222222);
 
 	if (filename) {
-//#ifdef CV_VERSION_EPOCH	// OpenCV 2.x
-//		cap = cvCaptureFromFile(filename);
-//#else					// OpenCV 3.x
+        //#ifdef CV_VERSION_EPOCH	// OpenCV 2.x
+        //		cap = cvCaptureFromFile(filename);
+        //#else					// OpenCV 3.x
         cpp_video_capture = 1;
         cap = get_capture_video_stream(filename);
-		//#endif
+	    //#endif
 	}
 	else {
         printf("Webcam index: %d\n", cam_index);
-//#ifdef CV_VERSION_EPOCH	// OpenCV 2.x
-		//        cap = cvCaptureFromCAM(cam_index);
-//#else					// OpenCV 3.x
+        //#ifdef CV_VERSION_EPOCH	// OpenCV 2.x
+                //        cap = cvCaptureFromCAM(cam_index);
+        //#else					// OpenCV 3.x
         cpp_video_capture = 1;
         cap = get_capture_webcam(cam_index);
 		//#endif
 	}
 
     if (!cap) {
-#ifdef WIN32
+    #ifdef WIN32
         printf("Check that you have copied file opencv_ffmpeg340_64.dll to the same directory where is darknet.exe \n");
-#endif
+    #endif
         error("Couldn't connect to webcam.\n");
     }
 
@@ -283,6 +283,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
                     {
                         flag_exit = 1;
                     }
+                }
 			}
 			else {
 				char buff[256];
@@ -375,11 +376,11 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 
     free_network(net);
 }
-#else
+#else // no openCV
 void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int cam_index, const char *filename, char **names, int classes,
 	int frame_skip, char *prefix, char *out_filename, int http_stream_port, int dont_show, int ext_output, int save_json_output, int save_image_output, char *output_prefix)
 {
 	fprintf(stderr, "Demo needs OpenCV for webcam images.\n");
 }
-#endif
+#endif // openCV
 

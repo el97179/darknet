@@ -635,7 +635,6 @@ void draw_detections_cv_v3(IplImage* show_img, detection *dets, int num, float t
             cvPutText(show_img, labelstr, pt_text, &font, black_color);
         }
 	}
-    if (ext_output) {
 	if (save_json_output && flag_detected) {
 		char *json_frame_fileout[256];
 		snprintf(json_frame_fileout, 256, "%s_frame_%s.json", output_prefix, frameNumber);
@@ -645,6 +644,7 @@ void draw_detections_cv_v3(IplImage* show_img, detection *dets, int num, float t
 		jwClose(); // close jWrite object
 		FILE *f = fopen(json_frame_fileout, "w");
 		fprintf(f, "%s\n", buffer);
+		fclose(f);
 	}
 
 	if (save_image_output && flag_detected) {
