@@ -4,27 +4,20 @@
 *.out
 *.png
 *.so
-mnist/
-data/
-caffe/
-grasp/
-images/
-opencv/
-convnet/
-decaf/
-submission/
-cfg/
 build/darknet/*
 !build/darknet/YoloWrapper.cs
-.fuse*
-
-# OS Generated #
-.DS_Store*
-ehthumbs.db
-Icon?
-Thumbs.db
-*.swp
 
 # CMake #
 cmake-build-debug/
 CMakeLists.txt
+
+# weight files
+backup/
+models/
+
+# vs code setting files
+.vscode/
+
+# temp results and output folders
+results/
+var-output/
