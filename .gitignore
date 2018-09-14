@@ -1,9 +1,11 @@
+# binary files
 *.o
-*.dSYM
-*.csv
 *.out
 *.png
 *.so
+darknet
+
+# build folder
 build/darknet/*
 !build/darknet/YoloWrapper.cs
 
@@ -16,6 +18,7 @@ backup/
 models/
 
 # vs code setting files
+darknet.code-workspace
 .vscode/
 
 # temp results and output folders
