@@ -6,12 +6,13 @@
 darknet
 
 # build folder
+buildQtCreator/
 build/darknet/*
 !build/darknet/YoloWrapper.cs
 
 # CMake #
 cmake-build-debug/
-CMakeLists.txt
+CMakeLists.txt.user
 
 # weight files
 backup/
