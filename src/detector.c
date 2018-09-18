@@ -549,7 +549,7 @@ int detections_comparator(const void *pa, const void *pb)
     return 0;
 }
 
-void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float thresh_calc_avg_iou)
+void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float thresh_calc_avg_iou, int ROC_points)
 {
     int j;
     list *options = read_data_cfg(datacfg);
@@ -584,15 +584,15 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
     layer l = net.layers[net.n - 1];
     int classes = l.classes;
 
-    int m = plist->size;
-    int i = 0;
+    int m = plist->size; // number of images to run onto
+    int it = 0;
     int t;
 
     const float thresh = .005;
     const float nms = .45;
     const float iou_thresh = 0.5;
 
-    int nthreads = 4;
+    int nthreads = 6;
     image *val = calloc(nthreads, sizeof(image));
     image *val_resized = calloc(nthreads, sizeof(image));
     image *buf = calloc(nthreads, sizeof(image));
@@ -607,9 +607,9 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
     //args.type = LETTERBOX_DATA;
 
     //const float thresh_calc_avg_iou = 0.24;
-    float avg_iou = 0;
-    int tp_for_thresh = 0;
-    int fp_for_thresh = 0;
+    float* avg_iou = calloc(ROC_points, sizeof(float));
+    int* tp_for_thresh = calloc(ROC_points, sizeof(int));
+    int* fp_for_thresh = calloc(ROC_points, sizeof(int));
 
     box_prob *detections = calloc(1, sizeof(box_prob));
     int detections_count = 0;
@@ -618,27 +618,27 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
     int *truth_classes_count = calloc(classes, sizeof(int));
 
     for (t = 0; t < nthreads; ++t) {
-        args.path = paths[i + t];
+        args.path = paths[it + t];
         args.im = &buf[t];
         args.resized = &buf_resized[t];
         thr[t] = load_data_in_thread(args);
     }
     time_t start = time(0);
-    for (i = nthreads; i < m + nthreads; i += nthreads) {
-        fprintf(stderr, "%d\n", i);
-        for (t = 0; t < nthreads && i + t - nthreads < m; ++t) {
+    for (it = nthreads; it < m + nthreads; it += nthreads) {
+        fprintf(stderr, "image #%d\n", it);
+        for (t = 0; t < nthreads && it + t - nthreads < m; ++t) {
             pthread_join(thr[t], 0);
             val[t] = buf[t];
             val_resized[t] = buf_resized[t];
         }
-        for (t = 0; t < nthreads && i + t < m; ++t) {
-            args.path = paths[i + t];
+        for (t = 0; t < nthreads && it + t < m; ++t) {
+            args.path = paths[it + t];
             args.im = &buf[t];
             args.resized = &buf_resized[t];
             thr[t] = load_data_in_thread(args);
         }
-        for (t = 0; t < nthreads && i + t - nthreads < m; ++t) {
-            const int image_index = i + t - nthreads;
+        for (t = 0; t < nthreads && it + t - nthreads < m; ++t) {
+            const int image_index = it + t - nthreads;
             char *path = paths[image_index];
             char *id = basecfg(path);
             float *X = val_resized[t].data;
@@ -676,7 +676,6 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
             const int checkpoint_detections_count = detections_count;
 
             for (i = 0; i < nboxes; ++i) {
-
                 int class_id;
                 for (class_id = 0; class_id < classes; ++class_id) {
                     float prob = dets[i].prob[class_id];
@@ -724,19 +723,29 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
                         }
 
                         // calc avg IoU, true-positives, false-positives for required Threshold
-                        if (prob > thresh_calc_avg_iou) {
-                            int z, found = 0;
-                            for (z = checkpoint_detections_count; z < detections_count-1; ++z)
-                                if (detections[z].unique_truth_index == truth_index) {
-                                    found = 1; break;
-                                }
-
-                            if(truth_index > -1 && found == 0) {
-                                avg_iou += max_iou;
-                                ++tp_for_thresh;
+                        for (int k = 0; k < ROC_points; ++k) {
+                            float thresh = 0.0;
+                            if (ROC_points <= 1) {
+                                thresh = thresh_calc_avg_iou;
                             }
-                            else
-                                fp_for_thresh++;
+                            else {
+                                thresh = (float) k * (1.0 / (ROC_points - 1));
+                            }
+                            if (prob > thresh) {
+                                int z, found = 0;
+                                for (z = checkpoint_detections_count; z < detections_count-1; ++z)
+                                    if (detections[z].unique_truth_index == truth_index) {
+                                        found = 1; break;
+                                    }
+
+                                if(truth_index > -1 && found == 0) {
+                                    avg_iou[k] += max_iou;
+                                    ++tp_for_thresh[k];
+                                }
+                                else {
+                                    ++fp_for_thresh[k];
+                                }
+                            }
                         }
                     }
                 }
@@ -760,9 +769,10 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
         }
     }
 
-    if((tp_for_thresh + fp_for_thresh) > 0)
-        avg_iou = avg_iou / (tp_for_thresh + fp_for_thresh);
-
+    for (int k = 0; k < ROC_points; ++k) {
+        if((tp_for_thresh[k] + fp_for_thresh[k]) > 0)
+            avg_iou[k] = avg_iou[k] / (tp_for_thresh[k] + fp_for_thresh[k]);
+    }
 
     // SORT(detections)
     qsort(detections, detections_count, sizeof(box_prob), detections_comparator);
@@ -775,8 +785,8 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
 
     // for PR-curve
     pr_t **pr = calloc(classes, sizeof(pr_t*));
-    for (i = 0; i < classes; ++i) {
-        pr[i] = calloc(detections_count, sizeof(pr_t));
+    for (int ic = 0; ic < classes; ++ic) {
+        pr[ic] = calloc(detections_count, sizeof(pr_t));
     }
     printf("detections_count = %d, unique_truth_count = %d  \n", detections_count, unique_truth_count);
 
@@ -809,18 +819,18 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
             pr[d.class_id][rank].fp++;    // false-positive
         }
 
-        for (i = 0; i < classes; ++i)
+        for (int ic = 0; ic < classes; ++ic)
         {
-            const int tp = pr[i][rank].tp;
-            const int fp = pr[i][rank].fp;
-            const int fn = truth_classes_count[i] - tp;    // false-negative = objects - true-positive
-            pr[i][rank].fn = fn;
+            const int tp = pr[ic][rank].tp;
+            const int fp = pr[ic][rank].fp;
+            const int fn = truth_classes_count[ic] - tp;    // false-negative = objects - true-positive
+            pr[ic][rank].fn = fn;
 
-            if ((tp + fp) > 0) pr[i][rank].precision = (double)tp / (double)(tp + fp);
-            else pr[i][rank].precision = 0;
+            if ((tp + fp) > 0) pr[ic][rank].precision = (double)tp / (double)(tp + fp);
+            else pr[ic][rank].precision = 0;
 
-            if ((tp + fn) > 0) pr[i][rank].recall = (double)tp / (double)(tp + fn);
-            else pr[i][rank].recall = 0;
+            if ((tp + fn) > 0) pr[ic][rank].recall = (double)tp / (double)(tp + fn);
+            else pr[ic][rank].recall = 0;
         }
     }
 
@@ -829,7 +839,7 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
 
     double mean_average_precision = 0;
 
-    for (i = 0; i < classes; ++i) {
+    for (int ic = 0; ic < classes; ++ic) {
         double avg_precision = 0;
         int point;
         for (point = 0; point < 11; ++point) {
@@ -837,40 +847,50 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
             double cur_precision = 0;
             for (rank = 0; rank < detections_count; ++rank)
             {
-                if (pr[i][rank].recall >= cur_recall) {    // > or >=
-                    if (pr[i][rank].precision > cur_precision) {
-                        cur_precision = pr[i][rank].precision;
+                if (pr[ic][rank].recall >= cur_recall) {    // > or >=
+                    if (pr[ic][rank].precision > cur_precision) {
+                        cur_precision = pr[ic][rank].precision;
                     }
                 }
             }
-            //printf("class_id = %d, point = %d, cur_recall = %.4f, cur_precision = %.4f \n", i, point, cur_recall, cur_precision);
+            // printf("class_id = %d, point = %d, cur_recall = %.4f, cur_precision = %.4f \n", ic, point, cur_recall, cur_precision);
 
             avg_precision += cur_precision;
         }
         avg_precision = avg_precision / 11;
-        printf("class_id = %d, name = %s, \t ap = %2.2f %% \n", i, names[i], avg_precision*100);
+        printf("class_id = %d, name = %s, \t ap = %2.2f%% \n", ic, names[ic], avg_precision*100);
         mean_average_precision += avg_precision;
     }
-
-    const float cur_precision = (float)tp_for_thresh / ((float)tp_for_thresh + (float)fp_for_thresh);
-    const float cur_recall = (float)tp_for_thresh / ((float)tp_for_thresh + (float)(unique_truth_count - tp_for_thresh));
-    const float f1_score = 2.F * cur_precision * cur_recall / (cur_precision + cur_recall);
-    printf(" for thresh = %1.2f, precision = %1.2f, recall = %1.2f, F1-score = %1.2f \n",
-        thresh_calc_avg_iou, cur_precision, cur_recall, f1_score);
-
-    printf(" for thresh = %0.2f, TP = %d, FP = %d, FN = %d, average IoU = %2.2f %% \n",
-        thresh_calc_avg_iou, tp_for_thresh, fp_for_thresh, unique_truth_count - tp_for_thresh, avg_iou * 100);
-
     mean_average_precision = mean_average_precision / classes;
-    printf("\n mean average precision (mAP) = %f, or %2.2f %% \n", mean_average_precision, mean_average_precision*100);
+    printf("\nmean average precision (mAP) = %2.2f%% \n\n", mean_average_precision * 100);
 
+    for (int k = 0; k < ROC_points; ++k) {
+        const float cur_precision = (float)tp_for_thresh[k] / ((float)tp_for_thresh[k] + (float)fp_for_thresh[k]);
+        const float cur_recall = (float)tp_for_thresh[k] / (float)(unique_truth_count);
+        const float cur_fpr = (float)fp_for_thresh[k] / (float) m;
+        const float f1_score = 2.F * cur_precision * cur_recall / (cur_precision + cur_recall);
+        float thresh = 0.0;
+        if (ROC_points <= 1) {
+            thresh = thresh_calc_avg_iou;
+        }
+        else {
+            thresh = k * (1.0 / (ROC_points - 1));
+        }
+        printf("threshold = %0.4f =>\t", thresh);
+        printf("TP = %d\tFP = %d\tFN = %d\tframes = %d\n", tp_for_thresh[k], fp_for_thresh[k], unique_truth_count - tp_for_thresh[k], m);
+        printf("\tprecision = %1.2f%%\n\trecall = %1.2f%%\n\tFPR = %1.2f%%\n\tF1-score = %1.2f%%\n\taverage IoU = %2.2f%% \n\n", 
+                cur_precision * 100, cur_recall * 100, cur_fpr * 100, f1_score * 100, avg_iou[k] * 100);
+    }
 
-    for (i = 0; i < classes; ++i) {
-        free(pr[i]);
+    for (int ic = 0; ic < classes; ++ic) {
+        free(pr[ic]);
     }
     free(pr);
     free(detections);
     free(truth_classes_count);
+    free(tp_for_thresh);
+    free(fp_for_thresh);
+    free(avg_iou);
 
     fprintf(stderr, "Total Detection Time: %f Seconds\n", (double)(time(0) - start));
     if (reinforcement_fd != NULL) fclose(reinforcement_fd);
@@ -1232,6 +1252,7 @@ void run_detector(int argc, char **argv)
     char *outfile = find_char_arg(argc, argv, "-out", 0);
     char *prefix = find_char_arg(argc, argv, "-prefix", 0);
     float thresh = find_float_arg(argc, argv, "-thresh", .25);    // 0.24
+    int ROC_points = find_int_arg(argc, argv, "-ROC", 1);
     float hier_thresh = find_float_arg(argc, argv, "-hier", .5);
     int cam_index = find_int_arg(argc, argv, "-c", 0);
     int frame_skip = find_int_arg(argc, argv, "-s", 0);
@@ -1282,7 +1303,7 @@ void run_detector(int argc, char **argv)
     else if(0==strcmp(argv[2], "train")) train_detector(datacfg, cfg, weights, gpus, ngpus, clear, dont_show);
     else if(0==strcmp(argv[2], "valid")) validate_detector(datacfg, cfg, weights, outfile);
     else if(0==strcmp(argv[2], "recall")) validate_detector_recall(datacfg, cfg, weights);
-    else if(0==strcmp(argv[2], "map")) validate_detector_map(datacfg, cfg, weights, thresh);
+    else if(0==strcmp(argv[2], "map")) validate_detector_map(datacfg, cfg, weights, thresh, ROC_points);
     else if(0==strcmp(argv[2], "calc_anchors")) calc_anchors(datacfg, num_of_clusters, width, height, show);
     else if(0==strcmp(argv[2], "demo")) {
         list *options = read_data_cfg(datacfg);
