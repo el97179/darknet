@@ -788,15 +788,13 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
     for (int ic = 0; ic < classes; ++ic) {
         pr[ic] = calloc(detections_count, sizeof(pr_t));
     }
-    printf("detections_count = %d, unique_truth_count = %d  \n", detections_count, unique_truth_count);
-
 
     int *truth_flags = calloc(unique_truth_count, sizeof(int));
 
     int rank;
     for (rank = 0; rank < detections_count; ++rank) {
-        if(rank % 100 == 0)
-            printf(" rank = %d of ranks = %d \r", rank, detections_count);
+        // if(rank % 1000 == 0)
+        //     printf(" rank = %d of ranks = %d \r", rank, detections_count);
 
         if (rank > 0) {
             int class_id;
@@ -836,34 +834,6 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
 
     free(truth_flags);
 
-
-    double mean_average_precision = 0;
-
-    for (int ic = 0; ic < classes; ++ic) {
-        double avg_precision = 0;
-        int point;
-        for (point = 0; point < 11; ++point) {
-            double cur_recall = point * 0.1;
-            double cur_precision = 0;
-            for (rank = 0; rank < detections_count; ++rank)
-            {
-                if (pr[ic][rank].recall >= cur_recall) {    // > or >=
-                    if (pr[ic][rank].precision > cur_precision) {
-                        cur_precision = pr[ic][rank].precision;
-                    }
-                }
-            }
-            // printf("class_id = %d, point = %d, cur_recall = %.4f, cur_precision = %.4f \n", ic, point, cur_recall, cur_precision);
-
-            avg_precision += cur_precision;
-        }
-        avg_precision = avg_precision / 11;
-        printf("class_id = %d, name = %s, \t ap = %2.2f%% \n", ic, names[ic], avg_precision*100);
-        mean_average_precision += avg_precision;
-    }
-    mean_average_precision = mean_average_precision / classes;
-    printf("\nmean average precision (mAP) = %2.2f%% \n\n", mean_average_precision * 100);
-
     for (int k = 0; k < ROC_points; ++k) {
         const float cur_precision = (float)tp_for_thresh[k] / ((float)tp_for_thresh[k] + (float)fp_for_thresh[k]);
         const float cur_recall = (float)tp_for_thresh[k] / (float)(unique_truth_count);
@@ -881,6 +851,32 @@ void validate_detector_map(char *datacfg, char *cfgfile, char *weightfile, float
         printf("\tprecision = %1.2f%%\n\trecall = %1.2f%%\n\tFPR = %1.2f%%\n\tF1-score = %1.2f%%\n\taverage IoU = %2.2f%% \n\n", 
                 cur_precision * 100, cur_recall * 100, cur_fpr * 100, f1_score * 100, avg_iou[k] * 100);
     }
+
+    double mean_average_precision = 0;
+    printf("total detections = %d, ground truth count = %d  \n", detections_count, unique_truth_count);
+    for (int ic = 0; ic < classes; ++ic) {
+        double avg_precision = 0;
+        int point;
+        for (point = 0; point < 11; ++point) {
+            double cur_recall = point * 0.1;
+            double cur_precision = 0;
+            for (rank = 0; rank < detections_count; ++rank)
+            {
+                if (pr[ic][rank].recall >= cur_recall) {    // > or >=
+                    if (pr[ic][rank].precision > cur_precision) {
+                        cur_precision = pr[ic][rank].precision;
+                    }
+                }
+            }
+            // printf("class_id = %d, point = %d, cur_recall = %.4f, cur_precision = %.4f \n", ic, point, cur_recall, cur_precision);
+            avg_precision += cur_precision;
+        }
+        avg_precision = avg_precision / 11;
+        printf("class_id = %d, name = %s, \t ap = %2.2f%% \n", ic, names[ic], avg_precision*100);
+        mean_average_precision += avg_precision;
+    }
+    mean_average_precision = mean_average_precision / classes;
+    printf("\nmean average precision (mAP) = %2.2f%% \n\n", mean_average_precision * 100);
 
     for (int ic = 0; ic < classes; ++ic) {
         free(pr[ic]);
