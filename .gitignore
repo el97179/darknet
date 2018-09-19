@@ -16,7 +16,7 @@ CMakeLists.txt.user
 
 # weight files
 backup/
-models/
+pretrained-models/
 
 # vs code setting files
 darknet.code-workspace
